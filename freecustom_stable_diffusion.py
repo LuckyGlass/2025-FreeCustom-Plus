@@ -2,6 +2,7 @@ import os,sys,datetime
 from omegaconf import OmegaConf
 
 import torch
+import argparse
 from torchvision.transforms import ToTensor
 from torchvision.utils import save_image
 from pytorch_lightning import seed_everything
@@ -14,10 +15,13 @@ from freecustom.mrsa import MultiReferenceSelfAttention
 from freecustom.hack_attention import hack_self_attention_to_mrsa
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-C', '--config', default='configs/config_stable_diffusion.yaml')
+    args = parser.parse_args()
     sys.path.append(os.getcwd())
 
     # load config
-    cfg = OmegaConf.load("configs/config_stable_diffusion.yaml")
+    cfg = OmegaConf.load(args.config)
     print(f'config: {cfg}')
 
     # set results and log output root directory
@@ -26,7 +30,7 @@ if __name__ == "__main__":
     results_dir = os.path.join('results', date, now)
 
     # set device
-    torch.cuda.set_device(cfg.gpu)
+    # torch.cuda.set_device(cfg.gpu)
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     
     # set model
@@ -44,11 +48,24 @@ if __name__ == "__main__":
     ref_images      = []
     ref_prompts     = []
     ref_latents_z_0 = []
-    for ref_image_info in cfg.ref_image_infos.items():
+    for i, ref_image_info in enumerate(cfg.ref_image_infos.items()):
         ref_image_path  = ref_image_info[0]
         ref_text_prompt = ref_image_info[1]
         ref_mask_path   = ref_image_path.replace('/image/', '/mask/')
         ref_mask  = load_mask(ref_mask_path, device)
+        import torch.nn.functional as F
+        import numpy as np
+        from PIL import Image
+        print(ref_mask.shape)
+        ref_mask_32 = F.interpolate(ref_mask, (32, 32)).reshape(32, 32)
+        ref_mask_64 = F.interpolate(ref_mask, (64, 64)).reshape(64, 64)
+        ref_mask_32 = (ref_mask_32 * 255).cpu().numpy().astype(np.uint8)
+        pil_image = Image.fromarray(ref_mask_32, mode='L')
+        pil_image.save(f"ref_mask_{i}_32.png")
+        ref_mask_64 = (ref_mask_64 * 255).cpu().numpy().astype(np.uint8)
+        pil_image = Image.fromarray(ref_mask_64, mode='L')
+        pil_image.save(f"ref_mask_{i}_64.png")
+        
         ref_image = load_image(ref_image_path, device)
         ref_masks.append(ref_mask)
         ref_images.append(ref_image)
