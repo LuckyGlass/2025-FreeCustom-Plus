@@ -82,8 +82,8 @@ def run(config: str):
         ref_text_prompt = ref_image_info[1]
         ref_mask_path   = ref_image_path.replace('/image/', '/mask/')
         ref_mask  = load_mask(ref_mask_path, device)
-        ref_mask_32 = get_ref_mask(ref_mask, 1, 32, 32)
-        ref_mask_64 = get_ref_mask(ref_mask, 1, 64, 64)
+        ref_mask_32 = get_ref_mask(ref_mask, 1, 32, 32).reshape(32, 32)
+        ref_mask_64 = get_ref_mask(ref_mask, 1, 64, 64).reshape(64, 64)
         ref_mask_32 = (ref_mask_32 * 255).cpu().numpy().astype(np.uint8)
         pil_image = Image.fromarray(ref_mask_32, mode='L')
         pil_image.save(os.path.join(mask_save_dir, f'ref_mask_{i}_32.png'))
