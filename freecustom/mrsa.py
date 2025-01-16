@@ -6,6 +6,12 @@ from einops import rearrange
 
 from utils.utils import visualize_correspondence, visualize_attention_map
 
+def get_ref_mask(ref_mask, mask_weight, H, W):
+    ref_mask = ref_mask.float() * mask_weight
+    ref_mask = F.interpolate(ref_mask, (H, W))
+    ref_mask = ref_mask.flatten()
+    return ref_mask
+
 class MultiReferenceSelfAttention():
     def __init__(self,  start_step=0, end_step=50, step_idx=None, layer_idx=None, ref_masks=None, mask_weights=[1.0,1.0,1.0], style_fidelity=1, viz_cfg=None):
         """
@@ -43,10 +49,7 @@ class MultiReferenceSelfAttention():
         return out
     
     def get_ref_mask(self, ref_mask, mask_weight, H, W):
-        ref_mask = ref_mask.float() * mask_weight
-        ref_mask = F.interpolate(ref_mask, (H, W))
-        ref_mask = ref_mask.flatten()
-        return ref_mask
+        return get_ref_mask(ref_mask, mask_weight, H, W)
     
     def attn_batch(self, q, k, v, sim, attn, is_cross, place_in_unet, num_heads, **kwargs):
         B = q.shape[0] // num_heads
