@@ -11,7 +11,6 @@ from diffusers.utils import deprecate
 from diffusers.utils.torch_utils import randn_tensor
 from PIL import Image
 from typing import Union, List, Optional, Callable, Dict, Any
-import GPUtil
 
 
 class FPStableDiffusionPipeline(StableDiffusionPipeline):
