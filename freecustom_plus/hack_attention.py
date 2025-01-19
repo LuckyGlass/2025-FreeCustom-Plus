@@ -83,6 +83,7 @@ def deactivate_mrsa(unet, mrsa: MultiReferenceSelfAttention):
         elif hasattr(net, 'children'):
             for _, subnet in net.named_children():
                 cur_idx = _replace(subnet, cur_idx)
+        return cur_idx
     
     idx = 0
     for net_name, net in unet.named_children():
@@ -102,6 +103,7 @@ def activate_mrsa(unet, mrsa: MultiReferenceSelfAttention):
         elif hasattr(net, 'children'):
             for _, subnet in net.named_children():
                 cur_idx = _replace(subnet, cur_idx)
+        return cur_idx
     
     idx = 0
     for net_name, net in unet.named_children():

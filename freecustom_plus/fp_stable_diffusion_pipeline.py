@@ -299,7 +299,7 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
                 # compute the previous noisy sample x_t -> x_t-1
                 base_latent = self.scheduler.step(noise_pred, t, base_latent, **extra_step_kwargs, return_dict=False)[0]
                 
-                if t == stage_step:
+                if i == stage_step:
                     latent_stage = base_latent
 
                 if callback_on_step_end is not None:
@@ -321,15 +321,19 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
         
         # Generate the base image
         base_image = self.vae.decode(base_latent / self.vae.config.scaling_factor, return_dict=False, generator=generator)[0]
-        base_image = self.image_processor.postprocess(base_image, output_type='pil', do_denormalize=[True])
+        base_image = self.image_processor.postprocess(base_image, output_type='pil', do_denormalize=[True])[0]
         
         # TODO: get masks, using base_image and referent_names
-        base_masks = torch.empty((3, ))  # [#referent, height, width]
+        base_masks = torch.zeros((latents.shape[0] - 1, height, width))  # [#referent, height, width]
         mrsa.load_base_masks(base_masks)
+        
+        # release memory
+        del base_latent
+        torch.cuda.empty_cache()
         
         # 7.2. Stage 2: FreeCustom++
         activate_mrsa(self.unet, mrsa)
-        latent_own = base_latent
+        latent_own = latent_stage
         latents_ref = latents[1:]
         with self.progress_bar(total=num_inference_steps-stage_step) as progress_bar:
             for i, t in enumerate(timesteps[stage_step:]):
