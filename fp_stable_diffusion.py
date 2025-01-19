@@ -113,7 +113,8 @@ def run(config: str):
             negative_prompt=negative_prompts,
             stage_step=10,
             referent_names=referent_names,
-            mrsa=mrsa
+            mrsa=mrsa,
+            generate_mask=generate_masks
         ).images[0]
         images.save(os.path.join(results_dir, f"freecustom_{seed}.png"))
         
