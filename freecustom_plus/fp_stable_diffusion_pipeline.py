@@ -1,6 +1,7 @@
-import logging
+import numpy as np
 import torch
 from .mrsa_module import MultiReferenceSelfAttention
+from .hack_attention import deactivate_mrsa, activate_mrsa
 from diffusers import StableDiffusionPipeline
 from diffusers.callbacks import PipelineCallback, MultiPipelineCallbacks
 from diffusers.image_processor import PipelineImageInput
@@ -8,10 +9,25 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import retri
 from diffusers.pipelines.stable_diffusion.pipeline_output import StableDiffusionPipelineOutput
 from diffusers.utils import deprecate
 from diffusers.utils.torch_utils import randn_tensor
+from PIL import Image
 from typing import Union, List, Optional, Callable, Dict, Any
 
 
 class FPStableDiffusionPipeline(StableDiffusionPipeline):
+    def image2latent(self, image):
+        """
+        Add this function to each self-defined pipeline
+        """
+        DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        if type(image) is Image:
+            image = np.array(image)
+            image = torch.from_numpy(image).float() / 127.5 - 1
+            image = image.permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+        # input image density range [-1, 1]
+        latents = self.vae.encode(image)['latent_dist'].mean
+        latents = latents * 0.18215
+        return latents
+    
     @torch.no_grad()
     def __call__(
         self,
@@ -245,6 +261,7 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
 
         # 7.1. Stage 1: Denoising loop, generate the base image
         mrsa.initialize_base_masks(latents.shape[0])
+        deactivate_mrsa(self.unet, mrsa)
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
         base_latent = latents[:1]
@@ -263,7 +280,7 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
                 noise_pred = self.unet(
                     latent_model_input,
                     t,
-                    encoder_hidden_states=prompt_embeds,
+                    encoder_hidden_states=prompt_embeds[[0, latents.shape[0]]],
                     timestep_cond=timestep_cond,
                     cross_attention_kwargs=self.cross_attention_kwargs,
                     added_cond_kwargs=added_cond_kwargs,
@@ -311,6 +328,7 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
         mrsa.load_base_masks(base_masks)
         
         # 7.2. Stage 2: FreeCustom++
+        activate_mrsa(self.unet, mrsa)
         latent_own = base_latent
         latents_ref = latents[1:]
         with self.progress_bar(total=num_inference_steps-stage_step) as progress_bar:

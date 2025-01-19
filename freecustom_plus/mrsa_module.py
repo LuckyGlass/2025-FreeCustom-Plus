@@ -43,6 +43,8 @@ class MultiReferenceSelfAttention():
         self.style_fidelity = style_fidelity
 
         self.viz_cfg = viz_cfg
+        self.new_forwards = []
+        self.original_forwards = []
        
     def __call__(self, q, k, v, sim, attn, is_cross, place_in_unet, num_heads, **kwargs):
         out = self.mrsa_forward(q, k, v, sim, attn, is_cross, place_in_unet, num_heads, **kwargs)

@@ -11,7 +11,7 @@ from diffusers import DDIMScheduler
 from utils.utils import load_image, load_mask
 from freecustom_plus.fp_stable_diffusion_pipeline import FPStableDiffusionPipeline
 from freecustom_plus.mrsa_module import MultiReferenceSelfAttention
-from freecustom.hack_attention import hack_self_attention_to_mrsa
+from freecustom_plus.hack_attention import hack_self_attention_to_mrsa
 
 
 def run(config: str):
@@ -89,26 +89,31 @@ def run(config: str):
 
         # hack the attention module
         mrsa = MultiReferenceSelfAttention(
-                                start_step     = cfg.start_step,
-                                end_step       = cfg.end_step,
-                                layer_idx      = cfg.layer_idx, 
-                                ref_masks      = ref_masks,
-                                mask_weights   = cfg.mask_weights,
-                                style_fidelity = cfg.style_fidelity,
-                                viz_cfg        = viz_cfg)
+            start_step     = cfg.start_step,
+            end_step       = cfg.end_step,
+            layer_idx      = cfg.layer_idx, 
+            ref_masks      = ref_masks,
+            mask_weights   = cfg.mask_weights,
+            style_fidelity = cfg.style_fidelity,
+            viz_cfg        = viz_cfg
+        )
         hack_self_attention_to_mrsa(model, mrsa)
 
         # set latent
         randn_latent_z_T = torch.randn_like(ref_latents_z_0[0])   # Initialize Gaussian noise for generated image $z_T$
         latents = torch.cat([randn_latent_z_T] + ref_latents_z_0) # Concatenate $z_T$ and the latent code of the reference images $z_0^'$
+        referent_names = [os.path.splitext(os.path.split(p)[1])[0] for p in cfg.ref_image_infos]
         
         # run freecustom
         images = model(
-                    prompt=prompts,
-                    latents=latents,
-                    guidance_scale=7.5,
-                    negative_prompt=negative_prompts,
-                    ).images[0]
+            prompt=prompts,
+            latents=latents,
+            guidance_scale=7.5,
+            negative_prompt=negative_prompts,
+            stage_step=10,
+            referent_names=referent_names,
+            mrsa=mrsa
+        ).images[0]
         images.save(os.path.join(results_dir, f"freecustom_{seed}.png"))
         
         # concat input images and generated image
