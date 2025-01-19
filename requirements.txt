@@ -11,3 +11,7 @@ torchvision==0.18.1
 transformers==4.41.2
 peft==0.10.0
 huggingface_hub==0.25.2
+opencv-python
+pycocotools
+onnxruntime
+onnx
