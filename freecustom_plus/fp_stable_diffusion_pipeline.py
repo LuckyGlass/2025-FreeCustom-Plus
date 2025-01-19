@@ -11,6 +11,7 @@ from diffusers.utils import deprecate
 from diffusers.utils.torch_utils import randn_tensor
 from PIL import Image
 from typing import Union, List, Optional, Callable, Dict, Any
+import GPUtil
 
 
 class FPStableDiffusionPipeline(StableDiffusionPipeline):
@@ -50,10 +51,6 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         guidance_rescale: float = 0.0,
         clip_skip: Optional[int] = None,
-        callback_on_step_end: Optional[
-            Union[Callable[[int, int, Dict], None], PipelineCallback, MultiPipelineCallbacks]
-        ] = None,
-        callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         stage_step: int = 0,
         referent_names: List[str] = [],
         mrsa: MultiReferenceSelfAttention = None,
@@ -117,15 +114,6 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
             clip_skip (`int`, *optional*):
                 Number of layers to be skipped from CLIP while computing the prompt embeddings. A value of 1 means that
                 the output of the pre-final layer will be used for computing the prompt embeddings.
-            callback_on_step_end (`Callable`, `PipelineCallback`, `MultiPipelineCallbacks`, *optional*):
-                A function or a subclass of `PipelineCallback` or `MultiPipelineCallbacks` that is called at the end of
-                each denoising step during the inference. with the following arguments: `callback_on_step_end(self:
-                DiffusionPipeline, step: int, timestep: int, callback_kwargs: Dict)`. `callback_kwargs` will include a
-                list of all tensors as specified by `callback_on_step_end_tensor_inputs`.
-            callback_on_step_end_tensor_inputs (`List`, *optional*):
-                The list of tensor inputs for the `callback_on_step_end` function. The tensors specified in the list
-                will be passed as `callback_kwargs` argument. You will only be able to include variables listed in the
-                `._callback_tensor_inputs` attribute of your pipeline class.
             stage_step (`int`):
                 The number of steps in the first stage.
             referent_names (`List[str]`):
@@ -159,9 +147,6 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
                 "Passing `callback_steps` as an input argument to `__call__` is deprecated, consider using `callback_on_step_end`",
             )
 
-        if isinstance(callback_on_step_end, (PipelineCallback, MultiPipelineCallbacks)):
-            callback_on_step_end_tensor_inputs = callback_on_step_end.tensor_inputs
-
         # 0. Default height and width to unet
         height = height or self.unet.config.sample_size * self.vae_scale_factor
         width = width or self.unet.config.sample_size * self.vae_scale_factor
@@ -176,7 +161,6 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
             negative_prompt=negative_prompt,
             ip_adapter_image=ip_adapter_image,
             ip_adapter_image_embeds=ip_adapter_image_embeds,
-            callback_on_step_end_tensor_inputs=callback_on_step_end_tensor_inputs,
         )
 
         self._guidance_scale = guidance_scale
@@ -302,16 +286,6 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
                 if i == stage_step:
                     latent_stage = base_latent
 
-                if callback_on_step_end is not None:
-                    callback_kwargs = {}
-                    for k in callback_on_step_end_tensor_inputs:
-                        callback_kwargs[k] = locals()[k]
-                    callback_outputs = callback_on_step_end(self, i, t, callback_kwargs)
-
-                    base_latent = callback_outputs.pop("latents", base_latent)
-                    prompt_embeds = callback_outputs.pop("prompt_embeds", prompt_embeds)
-                    negative_prompt_embeds = callback_outputs.pop("negative_prompt_embeds", negative_prompt_embeds)
-
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
                     progress_bar.update()
@@ -324,7 +298,7 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
         base_image = self.image_processor.postprocess(base_image, output_type='pil', do_denormalize=[True])[0]
         
         # TODO: get masks, using base_image and referent_names
-        base_masks = torch.zeros((latents.shape[0] - 1, height, width))  # [#referent, height, width]
+        base_masks = [torch.zeros((1, 1, height, width), device=latent_stage.device, dtype=torch.int) for _ in range(latents.shape[0] - 1)]  # [#referent, 1, height, width]
         mrsa.load_base_masks(base_masks)
         
         # release memory
@@ -339,8 +313,8 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
             for i, t in enumerate(timesteps[stage_step:]):
                 # FreeCustom
                 noise = randn_tensor(latents_ref.shape, generator=generator, device=device, dtype=latents_ref.dtype)
-                latents_ref = self.scheduler.add_noise(latents_ref, noise, t.reshape(1,),)
-                latents = torch.cat([latent_own, latents_ref], dim=0)
+                noisy_latents_ref = self.scheduler.add_noise(latents_ref, noise, t.reshape(1,),)
+                latents = torch.cat([latent_own, noisy_latents_ref], dim=0)
                 
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
@@ -365,22 +339,17 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
                     noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
-                latent_own = latents[:1]
+                latent_own = self.scheduler.step(noise_pred[:1], t, latent_own, **extra_step_kwargs, return_dict=False)[0]
 
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
                     progress_bar.update()
-                    if callback is not None and i % callback_steps == 0:
-                        callback(i, t, latents)
 
         if not output_type == "latent":
-            image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False, generator=generator)[
-                0
-            ]
+            image = self.vae.decode(latent_own / self.vae.config.scaling_factor, return_dict=False, generator=generator)[0]
             image, has_nsfw_concept = self.run_safety_checker(image, device, prompt_embeds.dtype)
         else:
-            image = latents
+            image = latent_own
             has_nsfw_concept = None
 
         if has_nsfw_concept is None:
