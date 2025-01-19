@@ -12,14 +12,14 @@ sys.path.append(os.path.join(os.getcwd(), "segment_anything"))
 
 
 # Grounding DINO
-import GroundingDINO.groundingdino.datasets.transforms as T
-from GroundingDINO.groundingdino.models import build_model
-from GroundingDINO.groundingdino.util.slconfig import SLConfig
-from GroundingDINO.groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
+import segment.GroundingDINO.groundingdino.datasets.transforms as T
+from segment.GroundingDINO.groundingdino.models import build_model
+from segment.GroundingDINO.groundingdino.util.slconfig import SLConfig
+from segment.GroundingDINO.groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
 
 
 # segment anything
-from segment_anything import (
+from segment.segment_anything import (
     sam_model_registry,
     sam_hq_model_registry,
     SamPredictor
@@ -28,9 +28,9 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-SAM_CHECKPOINT="sam_vit_h_4b8939.pth"
+SAM_CHECKPOINT="segment/sam_vit_h_4b8939.pth"
 SAM_VERSION="vit_h"
-GROUNDED_CHECKPOINT="groundingdino_swint_ogc.pth"
+GROUNDED_CHECKPOINT="segment/groundingdino_swint_ogc.pth"
 SAM_HQ_CHECKPOINT=None #default
 USE_SAM_HQ=False #default
 CONFIG="GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py"

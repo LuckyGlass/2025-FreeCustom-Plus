@@ -12,7 +12,7 @@ from utils.utils import load_image, load_mask
 from freecustom_plus.fp_stable_diffusion_pipeline import FPStableDiffusionPipeline
 from freecustom_plus.mrsa_module import MultiReferenceSelfAttention
 from freecustom_plus.hack_attention import hack_self_attention_to_mrsa
-from segment.generate_masks import generate_masks
+from generate_masks import generate_masks
 
 
 def run(config: str):
