@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import torch
 from .mrsa_module import MultiReferenceSelfAttention
 from .hack_attention import deactivate_mrsa, activate_mrsa
@@ -53,6 +54,7 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
         stage_step: int = 0,
         referent_names: List[str] = [],
         mrsa: MultiReferenceSelfAttention = None,
+        generate_mask: Callable[[str, str], torch.Tensor] = None,
         **kwargs,
     ):
         r"""
@@ -295,9 +297,15 @@ class FPStableDiffusionPipeline(StableDiffusionPipeline):
         # Generate the base image
         base_image = self.vae.decode(base_latent / self.vae.config.scaling_factor, return_dict=False, generator=generator)[0]
         base_image = self.image_processor.postprocess(base_image, output_type='pil', do_denormalize=[True])[0]
+        os.makedirs('cache', exist_ok=True)
+        base_image.save('cache/base_image.jpg')
         
         # TODO: get masks, using base_image and referent_names
-        base_masks = [torch.zeros((1, 1, height, width), device=latent_stage.device, dtype=torch.int) for _ in range(latents.shape[0] - 1)]  # [#referent, 1, height, width]
+        base_masks = []
+        for concept in referent_names:
+            base_masks.append(
+                generate_mask('cache/base_image.jpg', concept).unsqueeze(0)
+            )
         mrsa.load_base_masks(base_masks)
         
         # release memory
